@@ -1,7 +1,5 @@
 # aps-viewer-revit-systems-extension
 
-Sample Extension to demonstrate how to create a systems tab in Viewer
-
 ## Thumbnail
 
 ![thumbnail](./thumbnail.gif)
@@ -72,7 +70,7 @@ async getSystemsData(model) {
 
 We're also adding a reaction when a node gets clicked, so all the related dbIds get isolated.
 
-[DEMO]()
+[LIVE DEMO](https://autodesk-platform-services.github.io/aps-viewer-revit-systems-extension/)
 
 ## License
 
