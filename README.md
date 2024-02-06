@@ -60,11 +60,12 @@ async getSystemsData(model) {
       }
     }
 
+    // Here we grab all MEP System types and their system-related properties
     let systemTypeDbIds = system.properties.filter(p => p.attributeName == CHILD_PROPERTY).map(p => p.displayValue);
     let systemTypeResults = await this.getBulkPropertiesAsync(model, systemTypeDbIds, { propFilter: [SYSTEM_TYPE_PROPERTY, SYSTEM_NAME_PROPERTY, SYSTEM_CIRCUIT_NUMBER_PROPERTY, 'name'] });
 
     for (let systemTypeResult of systemTypeResults) {
-      //For system-end element we retrieve properties for the leaf nodes
+      //For system type we retrieve properties for the leaf nodes
       let systemTypeTypeProp = systemTypeResult.properties.find(p => p.attributeName == SYSTEM_TYPE_PROPERTY);
       let systemTypeNameProp = systemTypeResult.properties.find(p => p.attributeName == SYSTEM_NAME_PROPERTY);
       let circuitNumberProp = systemTypeResult.properties.find(p => p.attributeName == SYSTEM_CIRCUIT_NUMBER_PROPERTY);
@@ -82,6 +83,7 @@ async getSystemsData(model) {
         currentSystemType = currentSystem.entries.find(st => st.name == systemTypeName);
       }
 
+      // Here we retrieve system-end elements by their system type value from the leaf nodes
       let endElementResults = null;
       let prevCurrentSystemType = null;
       if (systemClassificationName == 'Electrical') {
@@ -106,6 +108,7 @@ async getSystemsData(model) {
       }
 
       for (let endElement of endElementResults) {
+        // Each system-end element we put it into correct system type
         let endElementName = endElement.name;
         let currentEndElement = currentSystemType.entries.find(st => st.name == endElementName);
         if (!currentEndElement) {

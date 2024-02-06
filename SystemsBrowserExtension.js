@@ -156,7 +156,7 @@ class SystemsBrowserExtension extends Autodesk.Viewing.Extension {
   }
 
   async getSystemsData(model) {
-    let systems = await getSystems(model);
+    let systems = await this.getSystems(model);
     let SYSTEMS_DATA = {
       name: 'Systems',
       path: 'systems',
@@ -171,7 +171,7 @@ class SystemsBrowserExtension extends Autodesk.Viewing.Extension {
     for (const system of systems) {
       let systemName = system.name;
       let familyNameProp = system.properties.find(p => p.attributeName == REVIT_FAMILY_NAME_PROPERTY);
-      let systemClassificationName = getSystemClassification(familyNameProp?.displayValue);
+      let systemClassificationName = this.getSystemClassification(familyNameProp?.displayValue);
 
       let currentSystemClassification = SYSTEMS_DATA.entries.find(s => s.name == systemClassificationName);
       if (!currentSystemClassification) {
