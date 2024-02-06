@@ -20,47 +20,117 @@ First thing we need to do is preparing the Sytems Data as soon as our design get
 
 ```js
 async getSystemsData(model) {
-  //First we grab all the leaf nodes
-  const dbids = await this.findLeafNodes(model);
-  return new Promise(function (resolve, reject) {
-    //Here we retrieve system-related properties for the leaf nodes
-    model.getBulkProperties(dbids, {propFilter:[SYSTEM_TYPE_PROPERTY, SYSTEM_NAME_PROPERTY, SYSTEM_CLASSIFICATION_PROPERTY, 'name']}, function (results) {
-      let systemsReady = false;
-      //And then we filter to only use elements that are part of a system
-      const systems_elements = results.filter(e => e.properties.length==3);
-      for (const system_element of systems_elements) {
-        //For each element we retrieve its properties
-        let system_classification = system_element.properties.find(p => p.displayName==SYSTEM_CLASSIFICATION_PROPERTY);
-        let system_type = system_element.properties.find(p => p.displayName==SYSTEM_TYPE_PROPERTY);
-        let system_name = system_element.properties.find(p => p.displayName==SYSTEM_NAME_PROPERTY);
-        let current_system = SYSTEMS_DATA.entries.find(s => s.name==system_type.displayCategory);
-        //And then we start populating the SYSTEMS_DATA object
-        if(!current_system){
-          SYSTEMS_DATA.entries.push({name:system_type.displayCategory, path:`systems/${system_type.displayCategory}`, dbIds:[], entries:[]});
-          current_system = SYSTEMS_DATA.entries.find(s => s.name==system_type.displayCategory);
-        }
-        current_system.dbIds.push(system_element.dbId);
+  // First we grab all MEP Systems for classifications
+  let systems = await getSystems(model);
+  let SYSTEMS_DATA = {
+    name: 'Systems',
+    path: 'systems',
+    dbIds: [],
+    entries: []
+  };
 
-        let current_system_type = current_system.entries.find(st => st.name==system_type.displayValue);
-        if(!current_system_type){
-          current_system.entries.push({name:system_type.displayValue, path:`systems/${system_type.displayCategory}/${system_type.displayValue}`, dbIds:[], entries:[]});
-          current_system_type = current_system.entries.find(st => st.name==system_type.displayValue);
-        }
-        current_system_type.dbIds.push(system_element.dbId);
+  // Here we grab all the leaf nodes
+  const leafNodeDbIds = await this.findLeafNodes(model);
+  // Here we retrieve system-related properties for the leaf nodes
+  let leafNodeResults = await this.getBulkPropertiesAsync(model, leafNodeDbIds, { propFilter: [SYSTEM_TYPE_PROPERTY, SYSTEM_NAME_PROPERTY, SYSTEM_CIRCUIT_NUMBER_PROPERTY, 'name', 'Category'] });
+  leafNodeResults = leafNodeResults.filter(e => e.properties.length >= 2);
 
-        let current_system_name = current_system_type.entries.find(sn => sn.name==system_name.displayValue);
-        if(!current_system_name){
-          current_system_type.entries.push({name:system_name.displayValue, path:`systems/${system_type.displayCategory}/${system_type.displayValue}/${system_name.displayValue}`, dbIds:[], entries:[]});
-          current_system_name = current_system_type.entries.find(sn => sn.name==system_name.displayValue);
-        }
-        current_system_name.dbIds.push(system_element.dbId);
+  for (const system of systems) {
+    //For each MEP systems we retrieve its properties
+    let systemName = system.name;
+    let familyNameProp = system.properties.find(p => p.attributeName == REVIT_FAMILY_NAME_PROPERTY);
+    // Here we transform system name to correct classifications
+    let systemClassificationName = getSystemClassification(familyNameProp?.displayValue);
 
-        current_system_name.entries.push({name:system_element.name, path:`systems/${system_type.displayCategory}/${system_type.displayValue}/${system_name.displayValue}/${system_element.name}`, dbIds:[system_element.dbId]})
+    //And then we start populating the SYSTEMS_DATA object
+    let currentSystemClassification = SYSTEMS_DATA.entries.find(s => s.name == systemClassificationName);
+    if (!currentSystemClassification) {
+      SYSTEMS_DATA.entries.push({ name: systemClassificationName, path: `systems/${systemClassificationName}`, dbIds: [], entries: [] });
+      currentSystemClassification = SYSTEMS_DATA.entries.find(s => s.name == systemClassificationName);
+    }
 
+    let currentSystem = null;
+    if (systemClassificationName == 'Electrical') {
+      currentSystem = currentSystemClassification;
+    } else {
+      currentSystem = currentSystemClassification.entries.find(s => s.name == systemName);
+      if (!currentSystem) {
+        currentSystemClassification.entries.push({ name: systemName, path: `systems/${systemClassificationName}/${systemName}`, dbIds: [], entries: [] });
+        currentSystem = currentSystemClassification.entries.find(s => s.name == systemName);
       }
-      resolve(systemsReady);
-    }, reject);
-  });
+    }
+
+    // Here we grab all MEP System types and their system-related properties
+    let systemTypeDbIds = system.properties.filter(p => p.attributeName == CHILD_PROPERTY).map(p => p.displayValue);
+    let systemTypeResults = await this.getBulkPropertiesAsync(model, systemTypeDbIds, { propFilter: [SYSTEM_TYPE_PROPERTY, SYSTEM_NAME_PROPERTY, SYSTEM_CIRCUIT_NUMBER_PROPERTY, 'name'] });
+
+    for (let systemTypeResult of systemTypeResults) {
+      //For system type we retrieve properties for the leaf nodes
+      let systemTypeTypeProp = systemTypeResult.properties.find(p => p.attributeName == SYSTEM_TYPE_PROPERTY);
+      let systemTypeNameProp = systemTypeResult.properties.find(p => p.attributeName == SYSTEM_NAME_PROPERTY);
+      let circuitNumberProp = systemTypeResult.properties.find(p => p.attributeName == SYSTEM_CIRCUIT_NUMBER_PROPERTY);
+
+      let systemTypeName = systemTypeNameProp?.displayValue;
+      let systemTypeEntryPath = `systems/${systemClassificationName}/${systemName}/${systemTypeName}`;
+      if (systemClassificationName == 'Electrical') {
+        systemTypeName = systemTypeTypeProp?.displayValue;
+        systemTypeEntryPath = `systems/${systemClassificationName}/${systemTypeName}`;
+      }
+
+      let currentSystemType = currentSystem.entries.find(st => st.name == systemTypeName);
+      if (!currentSystemType) {
+        currentSystem.entries.push({ name: systemTypeName, path: systemTypeEntryPath, dbIds: [], entries: [] });
+        currentSystemType = currentSystem.entries.find(st => st.name == systemTypeName);
+      }
+
+      // Here we retrieve system-end elements by their system type value from the leaf nodes
+      let endElementResults = null;
+      let prevCurrentSystemType = null;
+      if (systemClassificationName == 'Electrical') {
+        let circuitNumberVal = circuitNumberProp?.displayValue;
+        let currentCircuitNumber = currentSystemType.entries.find(st => st.name == circuitNumberVal);
+        if (!currentCircuitNumber) {
+          currentSystemType.entries.push({ name: circuitNumberVal, path: `${systemTypeEntryPath}/${circuitNumberVal}`, dbIds: [], entries: [] });
+          currentCircuitNumber = currentSystemType.entries.find(st => st.name == circuitNumberVal);
+        }
+
+        prevCurrentSystemType = currentSystemType;
+        currentSystemType = currentCircuitNumber;
+        let endElementSearchTerm = SYSTEM_CIRCUIT_NUMBER_PROPERTY;
+        endElementResults = leafNodeResults.filter(e =>
+          (e.properties.find(prop => prop.attributeName == endElementSearchTerm && prop.displayValue == currentSystemType.name) != null)
+        );
+      } else {
+        let endElementSearchTerm = SYSTEM_NAME_PROPERTY;
+        endElementResults = leafNodeResults.filter(e =>
+          (e.properties.find(prop => prop.attributeName == endElementSearchTerm && prop.displayValue.split(',').some(s => s == currentSystemType.name)) != null)
+        );
+      }
+
+      for (let endElement of endElementResults) {
+        // Each system-end element we put it into correct system type
+        let endElementName = endElement.name;
+        let currentEndElement = currentSystemType.entries.find(st => st.name == endElementName);
+        if (!currentEndElement) {
+          currentSystemType.entries.push({ name: endElementName, path: `${currentSystemType}/${endElementName}`, dbIds: [endElement.dbId], entries: [] });
+          currentEndElement = currentSystemType.entries.find(st => st.name == endElementName);
+        }
+        currentSystemType.dbIds.push(endElement.dbId);
+        prevCurrentSystemType?.dbIds.push(endElement.dbId);
+        currentSystem.dbIds.push(endElement.dbId);
+        currentSystemClassification.dbIds.push(endElement.dbId);
+      }
+
+      // Remove unused system types for electrical system as Revit does
+      if (currentSystemType.entries.length <= 0 && prevCurrentSystemType != null) {
+        let idx = prevCurrentSystemType.entries.indexOf(currentSystemType);
+        if (idx != -1)
+          prevCurrentSystemType.entries.splice(idx, 1);
+      }
+    }
+  }
+
+  return SYSTEMS_DATA;
 }
 ```
 
@@ -79,3 +149,4 @@ This sample is licensed under the terms of the [MIT License](http://opensource.o
 ## Written by
 
 Joao Martins [in/jpornelas](https://linkedin.com/in/jpornelas), [Developer Advocate](http://aps.autodesk.com)
+Eason Kang [in/eason-kang-b4398492/](https://www.linkedin.com/in/eason-kang-b4398492), [Developer Advocate](http://aps.autodesk.com)
