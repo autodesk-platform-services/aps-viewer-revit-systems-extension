@@ -180,7 +180,7 @@ class SystemsBrowserExtension extends Autodesk.Viewing.Extension {
       }
 
       let currentSystem = null;
-      if (systemClassificationName == 'Electrical' || systemClassificationName == 'Piping') {
+      if (systemClassificationName == 'Electrical') {
         currentSystem = currentSystemClassification;
       } else {
         currentSystem = currentSystemClassification.entries.find(s => s.name == systemName);
@@ -202,10 +202,6 @@ class SystemsBrowserExtension extends Autodesk.Viewing.Extension {
         let systemTypeEntryPath = `systems/${systemClassificationName}/${systemName}/${systemTypeName}`;
         if (systemClassificationName == 'Electrical') {
           systemTypeName = systemTypeTypeProp?.displayValue;
-          systemTypeEntryPath = `systems/${systemClassificationName}/${systemTypeName}`;
-        }
-
-        if (systemClassificationName == 'Piping') {
           systemTypeEntryPath = `systems/${systemClassificationName}/${systemTypeName}`;
         }
 

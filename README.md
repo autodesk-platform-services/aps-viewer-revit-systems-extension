@@ -44,7 +44,7 @@ async getSystemsData(model) {
     }
 
     let currentSystem = null;
-    if (systemClassificationName == 'Electrical' || systemClassificationName == 'Piping') {
+    if (systemClassificationName == 'Electrical') {
       currentSystem = currentSystemClassification;
     } else {
       currentSystem = currentSystemClassification.entries.find(s => s.name == systemName);
@@ -66,10 +66,6 @@ async getSystemsData(model) {
       let systemTypeEntryPath = `systems/${systemClassificationName}/${systemName}/${systemTypeName}`;
       if (systemClassificationName == 'Electrical') {
         systemTypeName = systemTypeTypeProp?.displayValue;
-        systemTypeEntryPath = `systems/${systemClassificationName}/${systemTypeName}`;
-      }
-
-      if (systemClassificationName == 'Piping') {
         systemTypeEntryPath = `systems/${systemClassificationName}/${systemTypeName}`;
       }
 
