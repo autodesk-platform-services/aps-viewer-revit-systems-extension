@@ -20,6 +20,7 @@ First thing we need to do is preparing the Sytems Data as soon as our design get
 
 ```js
 async getSystemsData(model) {
+  // First we grab all MEP Systems for classifications
   let systems = await getSystems(model);
   let SYSTEMS_DATA = {
     name: 'Systems',
@@ -28,15 +29,20 @@ async getSystemsData(model) {
     entries: []
   };
 
+  // Here we grab all the leaf nodes
   const leafNodeDbIds = await this.findLeafNodes(model);
+  // Here we retrieve system-related properties for the leaf nodes
   let leafNodeResults = await this.getBulkPropertiesAsync(model, leafNodeDbIds, { propFilter: [SYSTEM_TYPE_PROPERTY, SYSTEM_NAME_PROPERTY, SYSTEM_CIRCUIT_NUMBER_PROPERTY, 'name', 'Category'] });
   leafNodeResults = leafNodeResults.filter(e => e.properties.length >= 2);
 
   for (const system of systems) {
+    //For each MEP systems we retrieve its properties
     let systemName = system.name;
     let familyNameProp = system.properties.find(p => p.attributeName == REVIT_FAMILY_NAME_PROPERTY);
+    // Here we transform system name to correct classifications
     let systemClassificationName = getSystemClassification(familyNameProp?.displayValue);
 
+    //And then we start populating the SYSTEMS_DATA object
     let currentSystemClassification = SYSTEMS_DATA.entries.find(s => s.name == systemClassificationName);
     if (!currentSystemClassification) {
       SYSTEMS_DATA.entries.push({ name: systemClassificationName, path: `systems/${systemClassificationName}`, dbIds: [], entries: [] });
@@ -58,6 +64,7 @@ async getSystemsData(model) {
     let systemTypeResults = await this.getBulkPropertiesAsync(model, systemTypeDbIds, { propFilter: [SYSTEM_TYPE_PROPERTY, SYSTEM_NAME_PROPERTY, SYSTEM_CIRCUIT_NUMBER_PROPERTY, 'name'] });
 
     for (let systemTypeResult of systemTypeResults) {
+      //For system-end element we retrieve properties for the leaf nodes
       let systemTypeTypeProp = systemTypeResult.properties.find(p => p.attributeName == SYSTEM_TYPE_PROPERTY);
       let systemTypeNameProp = systemTypeResult.properties.find(p => p.attributeName == SYSTEM_NAME_PROPERTY);
       let circuitNumberProp = systemTypeResult.properties.find(p => p.attributeName == SYSTEM_CIRCUIT_NUMBER_PROPERTY);
@@ -111,7 +118,7 @@ async getSystemsData(model) {
         currentSystemClassification.dbIds.push(endElement.dbId);
       }
 
-      // Remove unused system types for electrical system
+      // Remove unused system types for electrical system as Revit does
       if (currentSystemType.entries.length <= 0 && prevCurrentSystemType != null) {
         let idx = prevCurrentSystemType.entries.indexOf(currentSystemType);
         if (idx != -1)
