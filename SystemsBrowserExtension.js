@@ -1,12 +1,26 @@
-var SYSTEMS_DATA = {
-  name: 'Systems',
-  path:'systems',
-  dbIds:[],
-  entries: []
-};
+//
+// Copyright (c) Autodesk, Inc. All rights reserved
+//
+// Permission to use, copy, modify, and distribute this software in
+// object code form for any purpose and without fee is hereby granted,
+// provided that the above copyright notice appears in all copies and
+// that both that copyright notice and the limited warranty and
+// restricted rights notice below appear in all supporting
+// documentation.
+//
+// AUTODESK PROVIDES THIS PROGRAM "AS IS" AND WITH ALL FAULTS.
+// AUTODESK SPECIFICALLY DISCLAIMS ANY IMPLIED WARRANTY OF
+// MERCHANTABILITY OR FITNESS FOR A PARTICULAR USE.  AUTODESK, INC.
+// DOES NOT WARRANT THAT THE OPERATION OF THE PROGRAM WILL BE
+// UNINTERRUPTED OR ERROR FREE.
+//
+
 const SYSTEM_TYPE_PROPERTY = "System Type";
 const SYSTEM_NAME_PROPERTY = "System Name";
 const SYSTEM_CLASSIFICATION_PROPERTY = "System Classification";
+const SYSTEM_CIRCUIT_NUMBER_PROPERTY = "Circuit Number";
+const CHILD_PROPERTY = "child";
+const REVIT_FAMILY_NAME_PROPERTY = '_RFN';
 
 class SystemsBrowserExtension extends Autodesk.Viewing.Extension {
   constructor(viewer, options) {
@@ -17,7 +31,7 @@ class SystemsBrowserExtension extends Autodesk.Viewing.Extension {
 
   async onModelLoaded(model) {
     this.systems = await this.getSystemsData(model);
-    this._panel = new SystemsBrowserPanel(this.viewer, 'systems-browser-panel', 'Systems Browser');
+    this._panel = new SystemsBrowserPanel(this.systems, this.viewer, 'systems-browser-panel', 'Systems Browser');
   }
 
   onToolbarCreated(toolbar) {
@@ -70,124 +84,252 @@ class SystemsBrowserExtension extends Autodesk.Viewing.Extension {
 
   findLeafNodes(model) {
     return new Promise(function (resolve, reject) {
-        model.getObjectTree(function (tree) {
-            let leaves = [];
-            tree.enumNodeChildren(tree.getRootId(), function (dbid) {
-                if (tree.getChildCount(dbid) === 0) {
-                    leaves.push(dbid);
-                }
-            }, true /* recursively enumerate children's children as well */);
-            resolve(leaves);
-        }, reject);
+      model.getObjectTree(function (tree) {
+        let leaves = [];
+        tree.enumNodeChildren(tree.getRootId(), function (dbid) {
+          if (tree.getChildCount(dbid) === 0) {
+            leaves.push(dbid);
+          }
+        }, true /* recursively enumerate children's children as well */);
+        resolve(leaves);
+      }, reject);
+    });
+  }
+
+  async getSystems(model) {
+    let mepSystemCateNames = [
+      'Duct Systems', 'Piping Systems', 'Electrical Circuits'
+    ];
+
+    const searchAsync = (text, attributeNames, options) => {
+      return new Promise((resolve, reject) => {
+        model.search(
+          text,
+          resolve,
+          reject,
+          attributeNames,
+          options
+        );
+      });
+    }
+
+    let systemProps = [];
+    for (let i = 0; i < mepSystemCateNames.length; i++) {
+      let cateName = mepSystemCateNames[i];
+      let dbIds = await searchAsync(cateName, ['_RC'], { searchHidden: true });
+      let results = await this.getBulkPropertiesAsync(model, dbIds, { propFilter: ['_RFN', 'child', 'Category', 'name'], ignoreHidden: false })
+
+      results = results.filter(e => e.properties.length > 0 && e.properties.find(prop => prop.attributeName == 'Category' && prop.displayValue == 'Revit Family Type') != null);
+      systemProps.push(...results);
+    }
+
+    let elecDbIds = await searchAsync(mepSystemCateNames[mepSystemCateNames.length - 1], ['_RC'], { searchHidden: true });
+    let elecResults = await this.getBulkPropertiesAsync(model, elecDbIds, { propFilter: ['child', 'Category', 'name'], ignoreHidden: false })
+
+    elecResults = elecResults.filter(e => e.properties.length > 0 && e.properties.find(prop => prop.attributeName == 'Category' && prop.displayValue != 'Revit') != null);
+    systemProps.push(...elecResults);
+
+    return systemProps;
+  }
+
+  getSystemClassification(name) {
+    let classification = '';
+    switch (name) {
+      case 'Duct System':
+        classification = 'Mechanical';
+        break;
+      case 'Piping System':
+        classification = 'Piping';
+        break;
+      default:
+        classification = 'Electrical';
+        break;
+    }
+
+    return classification;
+  }
+
+  getBulkPropertiesAsync(model, dbIds, options) {
+    return new Promise((resolve, reject) => {
+      model.getBulkProperties2(dbIds, options, resolve, resolve);
     });
   }
 
   async getSystemsData(model) {
-    const dbids = await this.findLeafNodes(model);
-    return new Promise(function (resolve, reject) {
-      model.getBulkProperties(dbids, {propFilter:[SYSTEM_TYPE_PROPERTY, SYSTEM_NAME_PROPERTY, SYSTEM_CLASSIFICATION_PROPERTY, 'name']}, function (results) {
-        let systemsReady = false;
-        const systems_elements = results.filter(e => e.properties.length==3);
-        for (const system_element of systems_elements) {
-          let system_classification = system_element.properties.find(p => p.displayName==SYSTEM_CLASSIFICATION_PROPERTY);
-          let system_type = system_element.properties.find(p => p.displayName==SYSTEM_TYPE_PROPERTY);
-          let system_name = system_element.properties.find(p => p.displayName==SYSTEM_NAME_PROPERTY);
-          let current_system = SYSTEMS_DATA.entries.find(s => s.name==system_type.displayCategory);
-          if(!current_system){
-            SYSTEMS_DATA.entries.push({name:system_type.displayCategory, path:`systems/${system_type.displayCategory}`, dbIds:[], entries:[]});
-            current_system = SYSTEMS_DATA.entries.find(s => s.name==system_type.displayCategory);
-          }
-          current_system.dbIds.push(system_element.dbId);
-          
-          let current_system_type = current_system.entries.find(st => st.name==system_type.displayValue);
-          if(!current_system_type){
-            current_system.entries.push({name:system_type.displayValue, path:`systems/${system_type.displayCategory}/${system_type.displayValue}`, dbIds:[], entries:[]});
-            current_system_type = current_system.entries.find(st => st.name==system_type.displayValue);
-          }
-          current_system_type.dbIds.push(system_element.dbId);
+    let systems = await getSystems(model);
+    let SYSTEMS_DATA = {
+      name: 'Systems',
+      path: 'systems',
+      dbIds: [],
+      entries: []
+    };
 
-          let current_system_name = current_system_type.entries.find(sn => sn.name==system_name.displayValue);
-          if(!current_system_name){
-            current_system_type.entries.push({name:system_name.displayValue, path:`systems/${system_type.displayCategory}/${system_type.displayValue}/${system_name.displayValue}`, dbIds:[], entries:[]});
-            current_system_name = current_system_type.entries.find(sn => sn.name==system_name.displayValue);
-          }
-          current_system_name.dbIds.push(system_element.dbId);
+    const leafNodeDbIds = await this.findLeafNodes(model);
+    let leafNodeResults = await this.getBulkPropertiesAsync(model, leafNodeDbIds, { propFilter: [SYSTEM_TYPE_PROPERTY, SYSTEM_NAME_PROPERTY, SYSTEM_CIRCUIT_NUMBER_PROPERTY, 'name', 'Category'] });
+    leafNodeResults = leafNodeResults.filter(e => e.properties.length >= 2);
 
-          current_system_name.entries.push({name:system_element.name, path:`systems/${system_type.displayCategory}/${system_type.displayValue}/${system_name.displayValue}/${system_element.name}`, dbIds:[system_element.dbId]})
+    for (const system of systems) {
+      let systemName = system.name;
+      let familyNameProp = system.properties.find(p => p.attributeName == REVIT_FAMILY_NAME_PROPERTY);
+      let systemClassificationName = getSystemClassification(familyNameProp?.displayValue);
 
+      let currentSystemClassification = SYSTEMS_DATA.entries.find(s => s.name == systemClassificationName);
+      if (!currentSystemClassification) {
+        SYSTEMS_DATA.entries.push({ name: systemClassificationName, path: `systems/${systemClassificationName}`, dbIds: [], entries: [] });
+        currentSystemClassification = SYSTEMS_DATA.entries.find(s => s.name == systemClassificationName);
+      }
+
+      let currentSystem = null;
+      if (systemClassificationName == 'Electrical' || systemClassificationName == 'Piping') {
+        currentSystem = currentSystemClassification;
+      } else {
+        currentSystem = currentSystemClassification.entries.find(s => s.name == systemName);
+        if (!currentSystem) {
+          currentSystemClassification.entries.push({ name: systemName, path: `systems/${systemClassificationName}/${systemName}`, dbIds: [], entries: [] });
+          currentSystem = currentSystemClassification.entries.find(s => s.name == systemName);
         }
-        resolve(systemsReady);
-      }, reject);
-    });
+      }
+
+      let systemTypeDbIds = system.properties.filter(p => p.attributeName == CHILD_PROPERTY).map(p => p.displayValue);
+      let systemTypeResults = await this.getBulkPropertiesAsync(model, systemTypeDbIds, { propFilter: [SYSTEM_TYPE_PROPERTY, SYSTEM_NAME_PROPERTY, SYSTEM_CIRCUIT_NUMBER_PROPERTY, 'name'] });
+
+      for (let systemTypeResult of systemTypeResults) {
+        let systemTypeTypeProp = systemTypeResult.properties.find(p => p.attributeName == SYSTEM_TYPE_PROPERTY);
+        let systemTypeNameProp = systemTypeResult.properties.find(p => p.attributeName == SYSTEM_NAME_PROPERTY);
+        let circuitNumberProp = systemTypeResult.properties.find(p => p.attributeName == SYSTEM_CIRCUIT_NUMBER_PROPERTY);
+
+        let systemTypeName = systemTypeNameProp?.displayValue;
+        let systemTypeEntryPath = `systems/${systemClassificationName}/${systemName}/${systemTypeName}`;
+        if (systemClassificationName == 'Electrical') {
+          systemTypeName = systemTypeTypeProp?.displayValue;
+          systemTypeEntryPath = `systems/${systemClassificationName}/${systemTypeName}`;
+        }
+
+        if (systemClassificationName == 'Piping') {
+          systemTypeEntryPath = `systems/${systemClassificationName}/${systemTypeName}`;
+        }
+
+        let currentSystemType = currentSystem.entries.find(st => st.name == systemTypeName);
+        if (!currentSystemType) {
+          currentSystem.entries.push({ name: systemTypeName, path: systemTypeEntryPath, dbIds: [], entries: [] });
+          currentSystemType = currentSystem.entries.find(st => st.name == systemTypeName);
+        }
+
+        let endElementResults = null;
+        let prevCurrentSystemType = null;
+        if (systemClassificationName == 'Electrical') {
+          let circuitNumberVal = circuitNumberProp?.displayValue;
+          let currentCircuitNumber = currentSystemType.entries.find(st => st.name == circuitNumberVal);
+          if (!currentCircuitNumber) {
+            currentSystemType.entries.push({ name: circuitNumberVal, path: `${systemTypeEntryPath}/${circuitNumberVal}`, dbIds: [], entries: [] });
+            currentCircuitNumber = currentSystemType.entries.find(st => st.name == circuitNumberVal);
+          }
+
+          prevCurrentSystemType = currentSystemType;
+          currentSystemType = currentCircuitNumber;
+          let endElementSearchTerm = SYSTEM_CIRCUIT_NUMBER_PROPERTY;
+          endElementResults = leafNodeResults.filter(e =>
+            (e.properties.find(prop => prop.attributeName == endElementSearchTerm && prop.displayValue == currentSystemType.name) != null)
+          );
+        } else {
+          let endElementSearchTerm = SYSTEM_NAME_PROPERTY;
+          endElementResults = leafNodeResults.filter(e =>
+            (e.properties.find(prop => prop.attributeName == endElementSearchTerm && prop.displayValue.split(',').some(s => s == currentSystemType.name)) != null)
+          );
+        }
+
+        for (let endElement of endElementResults) {
+          let endElementName = endElement.name;
+          let currentEndElement = currentSystemType.entries.find(st => st.name == endElementName);
+          if (!currentEndElement) {
+            currentSystemType.entries.push({ name: endElementName, path: `${currentSystemType}/${endElementName}`, dbIds: [endElement.dbId], entries: [] });
+            currentEndElement = currentSystemType.entries.find(st => st.name == endElementName);
+          }
+          currentSystemType.dbIds.push(endElement.dbId);
+          prevCurrentSystemType?.dbIds.push(endElement.dbId);
+          currentSystem.dbIds.push(endElement.dbId);
+          currentSystemClassification.dbIds.push(endElement.dbId);
+        }
+
+        // Remove unused system types for electrical system
+        if (currentSystemType.entries.length <= 0 && prevCurrentSystemType != null) {
+          let idx = prevCurrentSystemType.entries.indexOf(currentSystemType);
+          if (idx != -1)
+            prevCurrentSystemType.entries.splice(idx, 1);
+        }
+      }
+    }
+
+    return SYSTEMS_DATA;
   }
 }
 
 Autodesk.Viewing.theExtensionManager.registerExtension('SystemsBrowserExtension', SystemsBrowserExtension);
 
 class SystemBrowserDelegate extends Autodesk.Viewing.UI.TreeDelegate {
-  constructor(viewer, options){
+  constructor(viewer, options) {
     super(viewer, options);
     this.viewer = viewer;
   }
   isTreeNodeGroup(node) {
-      return node.entries && node.entries.length > 0;
+    return node.entries && node.entries.length > 0;
   }
 
   getTreeNodeId(node) {
-      return node.path;
+    return node.path;
   }
 
   getTreeNodeLabel(node) {
-      return node.name;
+    return node.name;
   }
 
   getTreeNodeClass(node) {
-      node.children && node.children.length > 0 ? 'group' : 'leaf';
+    node.children && node.children.length > 0 ? 'group' : 'leaf';
   }
 
   forEachChild(node, callback) {
-      for (const child of node?.entries) {
-          callback(child);
-      }
+    for (const child of node?.entries) {
+      callback(child);
+    }
   }
 
   onTreeNodeClick(tree, node, event) {
-      console.log('click', tree, node, event);
-      this.viewer.isolate(node.dbIds);
-      this.viewer.fitToView();
+    console.log('click', tree, node, event);
+    this.viewer.isolate(node.dbIds);
+    this.viewer.fitToView();
   }
 
   onTreeNodeDoubleClick(tree, node, event) {
-      console.log('double-click', tree, node, event);
+    console.log('double-click', tree, node, event);
   }
 
   onTreeNodeRightClick(tree, node, event) {
-      console.log('right-click', tree, node, event);
+    console.log('right-click', tree, node, event);
   }
 
   createTreeNode(node, parent, options, type, depth) {
-      const label = super.createTreeNode(node, parent, options, type, depth);
-      const icon = label.previousSibling;
-      const row = label.parentNode;
-      // Center arrow icon
-      if (icon) {
-          icon.style.backgroundPositionX = '5px';
-          icon.style.backgroundPositionY = '5px';
-      }
-      // Offset rows depending on their tree depth
-      row.style.padding = `5px`;
-      row.style.paddingLeft = `${5 + (type === 'leaf' ? 20 : 0) + depth * 20}px`;
-      return label;
+    const label = super.createTreeNode(node, parent, options, type, depth);
+    const icon = label.previousSibling;
+    const row = label.parentNode;
+    // Center arrow icon
+    if (icon) {
+      icon.style.backgroundPositionX = '5px';
+      icon.style.backgroundPositionY = '5px';
+    }
+    // Offset rows depending on their tree depth
+    row.style.padding = `5px`;
+    row.style.paddingLeft = `${5 + (type === 'leaf' ? 20 : 0) + depth * 20}px`;
+    return label;
   }
 }
 
 class SystemsBrowserPanel extends Autodesk.Viewing.UI.DockingPanel {
-  constructor(viewer, id, title) {
-      super(viewer.container, id, title);
-      this.container.classList.add('property-panel'); // Re-use some handy defaults
-      this.container.dockRight = true;
-      this.createScrollContainer({ left: false, heightAdjustment: 70, marginTop: 0 });
-      this.delegate = new SystemBrowserDelegate(viewer);
-      this.tree = new Autodesk.Viewing.UI.Tree(this.delegate, SYSTEMS_DATA, this.scrollContainer);
+  constructor(systemData, viewer, id, title) {
+    super(viewer.container, id, title);
+    this.container.classList.add('property-panel'); // Re-use some handy defaults
+    this.container.dockRight = true;
+    this.createScrollContainer({ left: false, heightAdjustment: 70, marginTop: 0 });
+    this.delegate = new SystemBrowserDelegate(viewer);
+    this.tree = new Autodesk.Viewing.UI.Tree(this.delegate, systemData, this.scrollContainer);
   }
 }
